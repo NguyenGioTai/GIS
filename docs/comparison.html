@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>So sánh Thuật toán</title>
+
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+      crossorigin=""
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.css"
+    />
+
+    <style>
+      * {
+        padding: 0;
+        margin: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f5f5f5;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+
+      .header h1 {
+        margin-bottom: 5px;
+        font-size: 28px;
+      }
+
+      .header p {
+        font-size: 14px;
+        opacity: 0.9;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 15px;
+        justify-content: center;
+        margin-top: 10px;
+      }
+
+      .nav-links a {
+        color: white;
+        text-decoration: none;
+        padding: 8px 16px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        transition: background 0.3s;
+        font-size: 14px;
+      }
+
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      .container {
+        display: grid;
+        grid-template-columns: 1.5fr 1fr;
+        gap: 20px;
+        padding: 20px;
+        max-width: 1600px;
+        margin: 0 auto;
+        height: calc(100vh - 120px);
+      }
+
+      .map-section {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #mapid {
+        flex: 1;
+        min-height: 400px;
+      }
+
+      .map-instructions {
+        padding: 12px;
+        background: #f9f9f9;
+        border-top: 1px solid #e0e0e0;
+        font-size: 13px;
+        color: #666;
+      }
+
+      .stats-section {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        overflow-y: auto;
+      }
+
+      .stats-card {
+        background: white;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+
+      .stats-card h3 {
+        margin-bottom: 12px;
+        color: #333;
+        font-size: 16px;
+        border-bottom: 2px solid #667eea;
+        padding-bottom: 8px;
+      }
+
+      .algorithm-result {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 10px;
+        background: #f9f9f9;
+        border-left: 4px solid #ccc;
+      }
+
+      .algorithm-result.astar {
+        border-left-color: #ff6b6b;
+        background: #ffe0e0;
+      }
+
+      .algorithm-result.bfs {
+        border-left-color: #4dabf7;
+        background: #e0f0ff;
+      }
+
+      .algorithm-result.greedy {
+        border-left-color: #51cf66;
+        background: #e0ffe0;
+      }
+
+      .algo-name {
+        font-weight: bold;
+        min-width: 80px;
+        font-size: 14px;
+      }
+
+      .algo-badge {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+      }
+
+      .badge-astar {
+        background: #ff6b6b;
+      }
+
+      .badge-bfs {
+        background: #4dabf7;
+      }
+
+      .badge-greedy {
+        background: #51cf66;
+      }
+
+      .metric {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .metric-label {
+        font-size: 12px;
+        color: #999;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .metric-value {
+        font-size: 16px;
+        font-weight: bold;
+        color: #333;
+        margin-top: 4px;
+      }
+
+      .metric-unit {
+        font-size: 12px;
+        color: #999;
+        margin-left: 4px;
+      }
+
+      .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        margin-top: 10px;
+      }
+
+      .comparison-table th {
+        background: #f0f0f0;
+        padding: 10px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #ddd;
+        color: #333;
+      }
+
+      .comparison-table td {
+        padding: 10px;
+        border-bottom: 1px solid #e0e0e0;
+      }
+
+      .comparison-table tr:hover {
+        background: #f9f9f9;
+      }
+
+      .rank-badge {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 24px;
+        font-weight: bold;
+        font-size: 12px;
+      }
+
+      .rank-1 {
+        background: #ffd700;
+        color: #333;
+      }
+
+      .rank-2 {
+        background: #c0c0c0;
+        color: #333;
+      }
+
+      .rank-3 {
+        background: #cd7f32;
+        color: white;
+      }
+
+      .chart-container {
+        position: relative;
+        height: 250px;
+        margin-top: 15px;
+      }
+
+      .empty-state {
+        text-align: center;
+        color: #999;
+        padding: 30px 20px;
+      }
+
+      .empty-state svg {
+        width: 60px;
+        height: 60px;
+        opacity: 0.3;
+        margin-bottom: 15px;
+      }
+
+      .loading {
+        text-align: center;
+        color: #667eea;
+        padding: 20px;
+        font-size: 14px;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 8px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .no-data {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+        padding: 12px;
+        border-radius: 4px;
+        margin-top: 10px;
+        font-size: 13px;
+      }
+
+      .best-performance {
+        background: #d4edda;
+        border: 1px solid #28a745;
+        color: #155724;
+        padding: 12px;
+        border-radius: 4px;
+        margin-top: 10px;
+        font-size: 13px;
+      }
+
+      @media (max-width: 1024px) {
+        .container {
+          grid-template-columns: 1fr;
+          height: auto;
+        }
+
+        .stats-section {
+          height: 400px;
+          max-height: 600px;
+        }
+      }
+
+      .button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      button {
+        flex: 1;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+      }
+
+      .btn-reset {
+        background: #f0f0f0;
+        color: #333;
+      }
+
+      .btn-reset:hover {
+        background: #e0e0e0;
+      }
+
+      .btn-export {
+        background: #667eea;
+        color: white;
+      }
+
+      .btn-export:hover {
+        background: #5568d3;
+      }
+
+      .path-info {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .info-item {
+        background: #f9f9f9;
+        padding: 10px;
+        border-radius: 4px;
+        border-left: 3px solid #667eea;
+      }
+
+      .info-label {
+        font-size: 11px;
+        color: #999;
+        text-transform: uppercase;
+      }
+
+      .info-value {
+        font-size: 16px;
+        font-weight: bold;
+        color: #333;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="header">
+      <h1>🗺️ So sánh Thuật toán Tìm đường</h1>
+      <p>Phân tích hiệu suất A*, BFS và Greedy trên bản đồ Hà Nội</p>
+      <div class="nav-links">
+        <a href="index.html">← Quay lại bản đồ</a>
+        <a href="#" onclick="resetComparison()">Làm mới</a>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="map-section">
+        <div id="mapid"></div>
+        <div class="map-instructions">
+          💡 Hướng dẫn: Nhấp trên bản đồ để chọn điểm A (điểm đầu), sau đó chọn
+          điểm B (điểm đích). Bạn có thể kéo các điểm để cập nhật đường đi.
+        </div>
+      </div>
+
+      <div class="stats-section">
+        <!-- Path Information Card -->
+        <div class="stats-card">
+          <h3>📍 Thông tin đường đi</h3>
+          <div class="path-info">
+            <div class="info-item">
+              <div class="info-label">Điểm đầu</div>
+              <div class="info-value" id="start-point">Chưa chọn</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Điểm đích</div>
+              <div class="info-value" id="end-point">Chưa chọn</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comparison Results Card -->
+        <div class="stats-card">
+          <h3>⚡ Kết quả So sánh</h3>
+          <div id="comparison-results" class="empty-state">
+            <svg
+              viewBox="0 0 100 100"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="50" cy="50" r="40" />
+              <path d="M 30 50 H 70 M 50 30 V 70" />
+            </svg>
+            <p>Chọn điểm A và B trên bản đồ để bắt đầu so sánh</p>
+          </div>
+        </div>
+
+        <!-- Performance Chart Card -->
+        <div class="stats-card">
+          <h3>📊 Biểu đồ Thời gian thực thi</h3>
+          <div class="chart-container">
+            <canvas id="performanceChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Summary Card -->
+        <div class="stats-card">
+          <h3>🏆 Tóm tắt hiệu suất</h3>
+          <table class="comparison-table" id="summary-table">
+            <thead>
+              <tr>
+                <th>Thuật toán</th>
+                <th>Thời gian (ms)</th>
+                <th>Quãng đường</th>
+                <th>Nút duyệt</th>
+              </tr>
+            </thead>
+            <tbody id="summary-tbody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: #999">
+                  Dữ liệu chưa có
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="button-group">
+            <button class="btn-reset" onclick="resetComparison()">
+              🔄 Làm mới
+            </button>
+            <button class="btn-export" onclick="exportResults()">
+              📥 Xuất kết quả
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+      crossorigin=""
+    ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+
+    <script src="./algorithm/astar.js"></script>
+    <script src="./algorithm/greedy.js"></script>
+    <script src="./algorithm/bfs.js"></script>
+
+    <script src="common.js"></script>
+    <script src="comparison-metrics.js"></script>
+
+    <script>
+      // Ensure map data is loaded before comparison.js runs
+      if (!localStorage.getItem("data")) {
+        console.log("📍 Loading map data...");
+        fetch("./map.json")
+          .then((r) => {
+            if (!r.ok) throw new Error("Failed to load map.json");
+            return r.json();
+          })
+          .then((data) => {
+            localStorage.setItem("data", JSON.stringify(data.nodes));
+            console.log(
+              "✅ Map data loaded:",
+              Object.keys(data.nodes).length,
+              "nodes"
+            );
+
+            // Now load the main script
+            const script = document.createElement("script");
+            script.src = "comparison.js";
+            document.head.appendChild(script);
+          })
+          .catch((error) => {
+            console.error("❌ Error loading map data:", error);
+            const script = document.createElement("script");
+            script.src = "comparison.js";
+            document.head.appendChild(script);
+          });
+      } else {
+        // Data already exists, load normally
+        const script = document.createElement("script");
+        script.src = "comparison.js";
+        document.head.appendChild(script);
+      }
+    </script>
+  </body>
+</html>
