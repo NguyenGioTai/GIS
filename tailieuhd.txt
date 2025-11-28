@@ -1,0 +1,1294 @@
+================================================================================
+                    TÀI LIỆU HỖ TRỢ DỰ ÁN LEAFLET PATH FINDER
+                        Hệ Thống Tìm Kiếm Đường Đi Tối Ưu
+================================================================================
+
+1. GIỚI THIỆU DỰ ÁN
+================================================================================
+
+Tên dự án: leaflet-path-finder (osm-astar)
+Mô tả: Ứng dụng web tìm kiếm đường đi tối ưu nhất trên bản đồ thực sử dụng 
+       dữ liệu OpenStreetMap (OSM).
+
+Chức năng chính:
+- Phân tích dữ liệu bản đồ từ file OSM (OpenStreetMap XML format)
+- Hiển thị bản đồ tương tác sử dụng Leaflet library
+- So sánh 3 thuật toán tìm kiếm đường đi: A*, BFS (Breadth-First Search), 
+  và Greedy Search
+- Trực quan hóa các con đường tìm được bằng các đường polyline màu khác nhau
+
+Công nghệ sử dụng:
+- Leaflet.js: Thư viện bản đồ tương tác
+- Node.js: Runtime JavaScript
+- xml2js: Thư viện phân tích XML
+- HTTP Server: Phục vụ web client
+
+================================================================================
+
+2. CẤU TRÚC DỰ ÁN
+================================================================================
+
+leaflet-path-finder/
+├── index.js                 # Script Node.js chính - xử lý dữ liệu OSM
+├── osm-parser.js           # Module phân tích file OSM và xây dựng đồ thị
+├── package.json            # Cấu hình npm - dependencies và scripts
+├── README.md               # Hướng dẫn sử dụng cơ bản
+├── map.osm                 # File dữ liệu bản đồ OSM (XML format)
+├── LICENSE                 # Giấy phép dự án
+│
+└── docs/                   # Thư mục ứng dụng web client
+    ├── index.html          # Trang HTML chính - giao diện bản đồ
+    ├── index.js            # JavaScript client - xử lý UI và gọi thuật toán
+    ├── common.js           # Các hàm tiện ích chung (tính khoảng cách, tìm láng giềng)
+    ├── map.json            # Dữ liệu bản đồ đã xử lý (JSON format)
+    └── algorithm/          # Các thuật toán tìm kiếm đường đi
+        ├── astar.js        # Thuật toán A* (Optimal với heuristic tốt)
+        ├── bfs.js          # Thuật toán BFS (Optimal nhưng chậm hơn)
+        └── greedy.js       # Thuật toán Greedy (Nhanh nhưng không optimal)
+
+================================================================================
+
+3. QUY TRÌNH HOẠT ĐỘNG CỦA DỰ ÁN
+================================================================================
+
+3.1 GIAI ĐOẠN 1: XỬ LÝ DỮ LIỆU BACKEND (Node.js)
+───────────────────────────────────────────────
+
+Bước 1: Chạy "npm run graph"
+       Lệnh này thực thi file index.js
+
+Bước 2: index.js xử lý file map.osm
+       - Đọc file OSM (XML format) từ dòng: fs.readFile("./map.osm")
+       - Phân tích XML thành JavaScript object bằng xml2js
+       - Gọi osm-parser.js để xử lý dữ liệu
+
+Bước 3: osm-parser.js thực hiện 3 nhiệm vụ chính:
+       
+       3a) parseNodes(osm):
+           - Lặp qua tất cả các <node> trong file OSM
+           - Mỗi node lưu: id, lat (vĩ độ), lon (kinh độ)
+           - Khởi tạo tập hợp "con" (connections) - các node kế tiếp
+           Cấu trúc: nodes = {
+               "12345": { lat: 21.002, lon: 105.851, con: Set() },
+               "12346": { lat: 21.003, lon: 105.852, con: Set() },
+               ...
+           }
+
+       3b) parseAddresses(osm):
+           - Lặp qua tất cả các <way> trong file OSM
+           - Tìm các toà nhà (building=yes)
+           - Lấy số nhà (addr:housenumber) và tên đường (addr:street)
+           - Tính tọa độ trung bình của toà nhà
+           Kết quả: mảng danh sách địa chỉ với tọa độ
+
+       3c) createGraph(osm):
+           - Xây dựng đồ thị từ các con đường (ways) trong OSM
+           - Kiểm tra loại đường (highway hoặc junction - giao lộ)
+           
+           Nếu là junction (giao lộ):
+           - Kết nối mọi node với mọi node khác trong giao lộ
+           - Tạo đồ thị đầy đủ (complete graph)
+           
+           Nếu là highway (đường):
+           - Kết nối các node liên tiếp: node[i] ↔ node[i+1]
+           - Tạo đồ thị tuyến tính
+           
+           Kết quả: Mỗi node có danh sách các node kế tiếp (con)
+
+       3d) getNodes():
+           - Lọc ra chỉ các node có ít nhất 1 kết nối
+           - Chuyển Set con thành Array (để JSON có thể serialize)
+           - Trả về object chỉ chứa các node có kết nối
+
+Bước 4: Xuất dữ liệu sang docs/map.json
+       fs.writeFileSync("./docs/map.json", JSON.stringify(data));
+       
+       Cấu trúc map.json:
+       {
+           "addresses": [ ... danh sách địa chỉ ... ],
+           "nodes": { 
+               "12345": { lat: ..., lon: ..., con: [id1, id2, ...] },
+               ...
+           }
+       }
+
+================================================================================
+
+3.2 GIAI ĐOẠN 2: HIỂN THỊ WEB FRONTEND (Browser)
+─────────────────────────────────────────────
+
+Bước 1: Chạy "npm run serve"
+       Phục vụ trang web tại http://localhost:8080
+
+Bước 2: Tải index.html
+       - Khởi tạo bản đồ Leaflet với tọa độ Hà Nội: [21.00269, 105.85159]
+       - Zoom level: 16
+
+Bước 3: Tải map.json và hiển thị:
+       - Fetch dữ liệu từ map.json
+       - Lưu vào localStorage (lưu trữ phía client)
+       - Vẽ các circle nhỏ đại diện cho mỗi node trên bản đồ
+       - Cho phép người dùng chọn các layer (OpenStreetMap, Google Satellite)
+
+Bước 4: Tương tác người dùng - Chọn điểm đi và điểm đến:
+       
+       Cách 1: Click trên bản đồ
+       - Click lần 1: Đặt điểm A (marker màu đỏ)
+       - Click lần 2: Đặt điểm B (marker màu xanh)
+       - Tìm node gần nhất: nearestNeighbour() từ common.js
+       
+       Cách 2: Kéo thả marker
+       - Kéo marker A hoặc B tới vị trí mới
+       - Tự động cập nhật đường đi
+
+Bước 5: Tính toán đường đi - Gọi 3 thuật toán:
+       
+       if (aid > 0 && bid > 0) {
+           let pathA = constructPath(astar(aid, bid), 'Astar');
+           let pathB = constructPath(bfs(aid, bid), 'BFS');
+           let pathG = constructPath(greedy(aid, bid), 'Greedy');
+       }
+
+Bước 6: Hiển thị đường đi trên bản đồ:
+       - A* (màu đỏ - red) - đường tối ưu
+       - BFS (màu xanh lam - blue) - đường tối ưu nhưng dài hơn
+       - Greedy (màu xanh lá - green) - đường nhanh nhất nhưng có thể không tối ưu
+
+       Vẽ từng điểm một với delay 200ms (renderPathPartially)
+       để tạo hiệu ứng animation
+
+================================================================================
+
+4. CÁC THUẬT TOÁN TÌMKIẾM ĐƯỜNG ĐI
+================================================================================
+
+4.1 THUẬT TOÁN A* (A-STAR) - OPTIMAL & EFFICIENT
+───────────────────────────────────────────────
+
+Mục tiêu: Tìm đường đi ngắn nhất từ start đến goal
+
+Nguyên tắc:
+- Sử dụng heuristic (h) để ước lượng khoảng cách từ node hiện tại đến goal
+- Chi phí f(n) = g(n) + h(n)
+  * g(n): Khoảng cách thực từ start đến node hiện tại
+  * h(n): Ước lượng khoảng cách từ node hiện tại đến goal (Manhattan distance)
+
+Cấu trúc dữ liệu:
+queue = [{
+    id: node_id,
+    cost: totalCost (g + h),
+    path: khoảng cách thực từ start,
+    parent: node_cha (để truy vết lại đường đi),
+    lat, lon: tọa độ,
+    heuristic: h(n) - Manhattan distance
+}]
+
+Các bước thực hiện:
+1. Khởi tạo queue với node bắt đầu
+2. Lặp cho đến khi tìm được goal:
+   a. Lấy node có cost thấp nhất từ queue
+   b. Nếu là goal → trả về node này (đường đi tối ưu)
+   c. Ngược lại:
+      - Đánh dấu node hiện tại là "visited"
+      - Lấy tất cả node kế tiếp (children)
+      - Tính cost = path_cost + manhattan_heuristic
+      - Thêm vào queue những node chưa visited
+      - Sắp xếp queue theo cost tăng dần
+
+Độ phức tạp:
+- Thời gian: O(b^d) với heuristic tốt (b = branching factor, d = độ sâu)
+- Không gian: O(b^d)
+
+Ưu điểm:
+- Tìm được đường đi tối ưu (shortest path)
+- Nhanh hơn BFS nhờ heuristic
+- Có thể sử dụng cho đồ thị có trọng số
+
+Nhược điểm:
+- Cần có heuristic tốt
+- Tiêu tốn bộ nhớ với đồ thị lớn
+
+Code trong astar.js:
+
+```javascript
+function astar(startId, goalId) {
+    let queue = [{
+        id: startId,
+        cost: manhattan(...),  // h(n)
+        path: 0,               // g(n)
+        parent: null,
+        ...
+    }];
+    let visited = new Set();
+    
+    while (true) {
+        let current = queue.shift();
+        
+        if (current.id == goalId) {
+            return current;  // Tìm được goal
+        } else {
+            visited.add(current.id);
+            let children = getChildrenAstar(current, goalId, data);
+            
+            // Thêm children vào queue
+            for (let child of children) {
+                if (!visited.has(child.id)) {
+                    queue.push(child);
+                }
+            }
+            
+            // Sắp xếp theo cost: f(n) = g(n) + h(n)
+            queue.sort((a, b) => a.cost - b.cost);
+        }
+    }
+}
+
+function getChildrenAstar(parent, goalId, data) {
+    let children = [];
+    for (let c of data[parent.id].con) {
+        let path = parent.path + distance(...);     // g(n+1)
+        let heuristic = manhattan(...);             // h(n+1)
+        let totalCost = path + heuristic;           // f(n+1)
+        
+        children.push({
+            id: c,
+            cost: totalCost,
+            path: path,
+            heuristic: heuristic,
+            parent: parent,
+            ...
+        });
+    }
+    return children;
+}
+```
+
+Visualization:
+```
+Start (A) ──→ Node1 (f=10)
+         ├──→ Node2 (f=15)
+         └──→ Node3 (f=8) ✓ ← Chọn node với f thấp nhất
+
+Tiếp tục từ Node3 ──→ Goal (f=5) ✓ ← Tìm được goal!
+
+Đường đi tối ưu: A → Node3 → Goal
+```
+
+================================================================================
+
+4.2 THUẬT TOÁN BFS (BREADTH-FIRST SEARCH) - OPTIMAL NHƯNG CHẬM
+──────────────────────────────────────────────────────────────
+
+Mục tiêu: Tìm đường đi với ít node nhất (optimal cho đồ thị không có trọng số)
+
+Nguyên tắc:
+- Khám phá tất cả node ở khoảng cách d trước khi khám phá node ở khoảng cách d+1
+- Không sử dụng heuristic, chỉ dùng chi phí thực tế
+
+Cấu trúc dữ liệu:
+queue = [{
+    id: node_id,
+    path: 0 (không dùng trong BFS thông thường),
+    parent: node_cha,
+    lat, lon: tọa độ
+}]
+
+Các bước thực hiện:
+1. Khởi tạo queue với node bắt đầu
+2. Lặp cho đến khi tìm được goal:
+   a. Lấy node đầu tiên từ queue (FIFO - First In First Out)
+   b. Nếu là goal → trả về node này
+   c. Ngược lại:
+      - Đánh dấu node hiện tại là "visited"
+      - Lấy tất cả node kế tiếp
+      - Thêm vào queue những node chưa visited
+      - KHÔNG sắp xếp queue
+
+Độ phức tạp:
+- Thời gian: O(V + E) với V = số node, E = số cạnh
+- Không gian: O(V)
+
+Ưu điểm:
+- Tìm được đường đi tối ưu (ít node nhất)
+- Đơn giản, dễ cài đặt
+- Không cần heuristic
+- Tiêu tốn ít bộ nhớ hơn A* trong thực tế
+
+Nhược điểm:
+- Chậm hơn A* vì khám phá nhiều node không cần thiết
+- Không sử dụng thông tin về vị trí goal
+
+Code trong bfs.js:
+
+```javascript
+function bfs(startId, goalId) {
+    let queue = [{
+        id: startId,
+        path: 0,
+        parent: null,
+        lat: data[startId].lat,
+        lon: data[startId].lon
+    }];
+    let visited = new Set();
+    
+    while (true) {
+        let current = queue.shift();  // FIFO
+        
+        if (current.id == goalId) {
+            return current;  // Tìm được goal
+        } else {
+            visited.add(current.id);
+            let children = getChildrenBfs(current, data);
+            
+            // Thêm vào queue - KHÔNG sắp xếp
+            for (let child of children) {
+                if (!visited.has(child.id)) {
+                    queue.push(child);
+                }
+            }
+        }
+    }
+}
+
+function getChildrenBfs(parent, data) {
+    let children = [];
+    for (let c of data[parent.id].con) {
+        children.push({
+            id: c,
+            lat: data[c].lat,
+            lon: data[c].lon,
+            parent: parent
+        });
+    }
+    return children;
+}
+```
+
+Visualization:
+```
+Level 0: Start (A)
+         │
+Level 1: Node1, Node2, Node3 (tất cả được thêm vào queue)
+         │     │      │
+Level 2: ...  ...    Goal ✓
+
+Thứ tự khám phá: Start → Node1 → Node2 → Node3 → ... → Goal
+```
+
+================================================================================
+
+4.3 THUẬT TOÁN GREEDY (GREEDY BEST-FIRST SEARCH) - NHANH NHƯNG KHÔNG TỐI ƯU
+────────────────────────────────────────────────────────────────────────────
+
+Mục tiêu: Tìm đường đi nhanh nhất (không đảm bảo tối ưu)
+
+Nguyên tắc:
+- Chỉ sử dụng heuristic (ước lượng đến goal), bỏ qua chi phí thực tế
+- Lúc nào cũng chọn node có heuristic thấp nhất (gần goal nhất theo ước lượng)
+
+Cấu trúc dữ liệu:
+queue = [{
+    id: node_id,
+    cost: manhattan(...),  // Chỉ dùng heuristic, không phải g+h
+    path: manhattan(...),  // Lưu heuristic
+    parent: node_cha,
+    lat, lon: tọa độ
+}]
+
+Các bước thực hiện:
+1. Khởi tạo queue với node bắt đầu
+2. Lặp cho đến khi tìm được goal:
+   a. Lấy node có cost (heuristic) thấp nhất từ queue
+   b. Nếu là goal → trả về node này
+   c. Ngược lại:
+      - Đánh dấu node hiện tại là "visited"
+      - Lấy tất cả node kế tiếp
+      - Tính cost = chỉ manhattan_heuristic (KHÔNG cộng g(n))
+      - Thêm vào queue những node chưa visited
+      - Sắp xếp queue theo cost tăng dần
+
+Độ phức tạp:
+- Thời gian: O(b^m) trong trường hợp xấu (m = độ sâu tối đa)
+- Không gian: O(b^m)
+
+Ưu điểm:
+- Rất nhanh, ít khám phá các node không cần thiết
+- Heuristic có tác dụng định hướng tìm kiếm đúng hướng
+- Tiêu tốn ít bộ nhớ
+
+Nhược điểm:
+- KHÔNG tìm được đường đi tối ưu
+- Có thể bỏ lỡ đường đi tốt hơn
+- Có thể lạc đường nếu heuristic kém
+
+Code trong greedy.js:
+
+```javascript
+function greedy(startId, goalId) {
+    let queue = [{
+        id: startId,
+        cost: manhattan(...),  // Chỉ h(n), không phải f(n)=g(n)+h(n)
+        path: 0,
+        parent: null,
+        lat: data[startId].lat,
+        lon: data[startId].lon
+    }];
+    let visited = new Set();
+    
+    while (true) {
+        let current = queue.shift();
+        
+        if (current.id == goalId) {
+            return current;  // Tìm được goal
+        } else {
+            visited.add(current.id);
+            let children = getChildrenGreedy(current, goalId, data);
+            
+            for (let child of children) {
+                if (!visited.has(child.id)) {
+                    queue.push(child);
+                }
+            }
+            
+            // Sắp xếp chỉ theo heuristic h(n)
+            queue.sort((a, b) => a.cost - b.cost);
+        }
+    }
+}
+
+function getChildrenGreedy(parent, goalId, data) {
+    let children = [];
+    for (let c of data[parent.id].con) {
+        let path = manhattan(...);  // Chỉ heuristic
+        
+        children.push({
+            id: c,
+            cost: path,        // Chỉ h(n)
+            path: path,
+            parent: parent,
+            lat: data[c].lat,
+            lon: data[c].lon
+        });
+    }
+    return children;
+}
+```
+
+Visualization:
+```
+Start (A) ──→ Node1 (h=15)
+         ├──→ Node2 (h=20)
+         └──→ Node3 (h=8) ✓ ← Chọn node với h thấp nhất
+
+Tiếp tục từ Node3 ──→ Goal (h=2) ✓
+
+Nhưng đường đi có thể dài hơn A* vì bỏ qua chi phí thực tế g(n)
+```
+
+================================================================================
+
+4.4 SO SÁNH 3 THUẬT TOÁN
+────────────────────────
+
+┌─────────────┬─────────────┬──────────────┬──────────────┬─────────────┐
+│ Thuật toán  │ Tối ưu?     │ Tốc độ       │ Sử dụng      │ Bộ nhớ      │
+├─────────────┼─────────────┼──────────────┼──────────────┼─────────────┤
+│ A*          │ Có ✓        │ Nhanh        │ g(n) + h(n)  │ Cao         │
+│ BFS         │ Có ✓        │ Chậm         │ Không        │ Cao         │
+│ Greedy      │ Không       │ Rất nhanh    │ Chỉ h(n)     │ Thấp        │
+└─────────────┴─────────────┴──────────────┴──────────────┴─────────────┘
+
+Lựa chọn:
+- A*: Cân bằng tốt giữa tối ưu và tốc độ → Khuyên dùng cho hầu hết trường hợp
+- BFS: Khi cần đảm bảo tối ưu tuyệt đối, không cần tốc độ
+- Greedy: Khi cần tốc độ nhanh, chấp nhận đường đi kém tối ưu
+
+================================================================================
+
+5. CÁC HÀM TIỆN ÍCH (common.js)
+================================================================================
+
+5.1 distance(lat1, lon1, lat2, lon2)
+────────────────────────────────────
+
+Mục tiêu: Tính khoảng cách Euclidean giữa 2 điểm
+
+Công thức:
+d = √[(lat1 - lat2)² + (lon1 - lon2)²]
+
+Lưu ý: Đây là khoảng cách trong hệ tọa độ Cartesian, không phải khoảng cách 
+       thực tế trên bề mặt Trái Đất (Haversine formula)
+
+Code:
+```javascript
+function distance(lat1, lon1, lat2, lon2) {
+    let d1 = Math.abs(lat1 - lat2) * Math.abs(lat1 - lat2);
+    let d2 = Math.abs(lon1 - lon2) * Math.abs(lon1 - lon2);
+    return Math.sqrt(d1 + d2);
+}
+```
+
+Ví dụ:
+distance(21.00, 105.85, 21.01, 105.86) = √[0.01² + 0.01²] ≈ 0.0141
+
+─────────────────────────────────────────────────────────────────────────────
+
+5.2 manhattan(lat1, lon1, lat2, lon2)
+─────────────────────────────────────
+
+Mục tiêu: Tính khoảng cách Manhattan (dùng làm heuristic cho A* và Greedy)
+
+Công thức:
+h = |lat1 - lat2| + |lon1 - lon2|
+
+Lưu ý: Manhattan distance luôn ≥ Euclidean distance
+       Đây là heuristic admissible (không bao giờ quá ước lượng)
+
+Code:
+```javascript
+function manhattan(lat1, lon1, lat2, lon2) {
+    let d1 = Math.abs(lat1 - lat2);
+    let d2 = Math.abs(lon1 - lon2);
+    return Math.abs(d1 + d2);
+}
+```
+
+Ví dụ:
+manhattan(21.00, 105.85, 21.01, 105.86) = |0.01| + |0.01| = 0.02
+
+─────────────────────────────────────────────────────────────────────────────
+
+5.3 nearestNeighbour(lat, lon)
+──────────────────────────────
+
+Mục tiêu: Tìm node trên bản đồ gần nhất với tọa độ (lat, lon)
+
+Cách thực hiện:
+1. Lặp qua tất cả các node trong localStorage
+2. Tính khoảng cách từ tọa độ đã cho đến mỗi node
+3. Trả về node có khoảng cách nhỏ nhất
+
+Độ phức tạp: O(n) với n = số node
+
+Code:
+```javascript
+function nearestNeighbour(lat, lon) {
+    let data = JSON.parse(localStorage.getItem('data'));
+    let id = "";
+    let gd = 99999999;
+    
+    for (let key in data) {
+        let d = distance(lat, lon, data[key].lat, data[key].lon);
+        if (d < gd) {
+            gd = d;
+            id = key;
+        }
+    }
+    
+    return {
+        id: id,
+        data: data[id],
+        lat: data[id].lat,
+        lng: data[id].lon
+    };
+}
+```
+
+Sử dụng: Khi người dùng click hoặc kéo marker, tìm node OSM gần nhất
+
+─────────────────────────────────────────────────────────────────────────────
+
+5.4 constructPath(node, algo)
+─────────────────────────────
+
+Mục tiêu: Truy vết lại đường đi từ node goal về start bằng cách theo chain parent
+
+Cách thực hiện:
+1. Bắt đầu từ node goal
+2. Lặp theo chuỗi parent cho đến khi parent = null (là start)
+3. Tạo mảng tọa độ (lat, lon) của từng bước
+
+Code:
+```javascript
+function constructPath(node, algo) {
+    let path = [];           // Mảng [lat, lon]
+    let pathFull = [];       // Mảng [id, lat, lon]
+    let to_compare = 0;      // Tổng khoảng cách
+    
+    // Truy vết từ goal về start
+    while (node) {
+        path.push([node.lat, node.lon]);
+        pathFull.push([node.id, node.lat, node.lon]);
+        node = node.parent;  // Đi ngược lên
+    }
+    
+    // Tính tổng khoảng cách
+    for (let i = 0; i < pathFull.length - 1; i++) {
+        to_compare += distance(
+            pathFull[i][1], pathFull[i][2],
+            pathFull[i+1][1], pathFull[i+1][2]
+        );
+    }
+    
+    console.log(`Distance ${algo}: `, to_compare);
+    
+    return path;  // Mảng các điểm để vẽ polyline
+}
+```
+
+Kết quả: Mảng các điểm [[lat1, lon1], [lat2, lon2], ...] để vẽ trên bản đồ
+
+================================================================================
+
+6. XỬ LÝ DỮ LIỆU OSM (osm-parser.js)
+================================================================================
+
+6.1 Định dạng file OSM (XML)
+─────────────────────────────
+
+File map.osm là XML chứa dữ liệu bản đồ OpenStreetMap:
+
+<osm>
+    <!-- Các điểm (node) -->
+    <node id="12345" lat="21.00269" lon="105.85159" />
+    <node id="12346" lat="21.00300" lon="105.85200" />
+    
+    <!-- Các đường (way) = chuỗi các node -->
+    <way id="54321">
+        <nd ref="12345" />
+        <nd ref="12346" />
+        <nd ref="12347" />
+        <tag k="highway" v="residential" />  <!-- Loại đường -->
+    </way>
+    
+    <way id="54322">
+        <nd ref="12348" />
+        <nd ref="12349" />
+        <tag k="building" v="yes" />         <!-- Là toà nhà -->
+        <tag k="addr:street" v="Hung Vuong" />
+        <tag k="addr:housenumber" v="123" />
+    </way>
+</osm>
+
+Cấu trúc:
+- <node>: Điểm địa lý có id, lat, lon
+- <way>: Chuỗi các node nối với nhau
+  - <nd ref="...">: Tham chiếu đến node
+  - <tag k="..." v="...">: Thuộc tính của way (loại đường, toà nhà, địa chỉ)
+
+─────────────────────────────────────────────────────────────────────────────
+
+6.2 parseNodes(osm) - Xây dựng danh sách node
+──────────────────────────────────────────────
+
+Mục tiêu: Tách tất cả <node> từ OSM và lưu vào biến toàn cục 'nodes'
+
+Code:
+```javascript
+function parseNodes(osm) {
+    nodes = {};
+    
+    if (osm.node) {
+        for (let n of osm.node) {
+            let attr = n["$"];  // Lấy attributes
+            nodes[attr["id"]] = {
+                lat: parseFloat(attr["lat"]),
+                lon: parseFloat(attr["lon"]),
+                con: new Set()  // Tập hợp các node kế tiếp
+            };
+        }
+    }
+    
+    return nodes;
+}
+```
+
+Kết quả:
+```javascript
+nodes = {
+    "12345": {
+        lat: 21.00269,
+        lon: 105.85159,
+        con: Set()  // Sẽ được điền sau bởi createGraph()
+    },
+    "12346": {
+        lat: 21.00300,
+        lon: 105.85200,
+        con: Set()
+    },
+    ...
+}
+```
+
+─────────────────────────────────────────────────────────────────────────────
+
+6.3 parseAddresses(osm) - Tìm các toà nhà với địa chỉ
+───────────────────────────────────────────────────────
+
+Mục tiêu: Trích xuất thông tin toà nhà (building=yes với địa chỉ đầy đủ)
+
+Điều kiện:
+- Phải có tag building=yes
+- Phải có tag addr:street (tên đường)
+- Phải có tag addr:housenumber (số nhà)
+
+Code:
+```javascript
+function parseAddresses(osm) {
+    let addresses = [];
+    
+    if (osm.way) {
+        for (let way of osm.way) {
+            let address = {};
+            
+            // Đọc các tag
+            if (way.tag) {
+                for (let attr of way.tag) {
+                    attr = attr["$"];
+                    
+                    if (attr["k"] == "building" && attr["v"] == "yes") {
+                        address["building"] = true;
+                    } else if (attr["k"] == "addr:housenumber" || 
+                               attr["k"] == "addr:street") {
+                        address[attr["k"]] = attr["v"];
+                    }
+                }
+            }
+            
+            // Tính tọa độ trung bình của toà nhà
+            if (way.nd) {
+                ll = getAvgLatLon(way.nd);
+                address["lat"] = ll.lat;
+                address["lon"] = ll.lon;
+            }
+            
+            // Chỉ thêm vào danh sách nếu đầy đủ thông tin
+            if (address.building && address["addr:street"] && 
+                address["addr:housenumber"]) {
+                delete address["building"];  // Xóa flag tạm thời
+                addresses.push(address);
+            }
+        }
+    }
+    
+    return addresses;
+}
+
+function getAvgLatLon(nds) {
+    let lat = 0;
+    let lon = 0;
+    
+    // Tính tổng tọa độ
+    for (let node of nds) {
+        lat += nodes[node["$"]["ref"]]["lat"];
+        lon += nodes[node["$"]["ref"]]["lon"];
+    }
+    
+    // Trả về trung bình
+    return {
+        lat: (lat / nds.length),
+        lon: (lon / nds.length)
+    };
+}
+```
+
+Kết quả:
+```javascript
+addresses = [
+    {
+        "addr:street": "Hung Vuong",
+        "addr:housenumber": "123",
+        lat: 21.00285,
+        lon: 105.85175
+    },
+    ...
+]
+```
+
+─────────────────────────────────────────────────────────────────────────────
+
+6.4 createGraph(osm) - Xây dựng đồ thị giao thông
+──────────────────────────────────────────────────
+
+Mục tiêu: Kết nối các node để tạo thành đồ thị biểu diễn các con đường
+
+Các loại way:
+1. junction=yes: Giao lộ (kết nối tất cả node với nhau)
+2. highway=*: Con đường (kết nối các node liên tiếp)
+
+Code:
+```javascript
+function createGraph(osm) {
+    if (osm.way) {
+        for (let way of osm.way) {
+            if (way.tag) {
+                let highway = false;
+                let junction = false;
+                
+                // Kiểm tra loại way
+                for (let attr of way.tag) {
+                    attr = attr["$"];
+                    if (attr["k"] == "highway") {
+                        highway = true;
+                    } else if (attr["k"] == "junction") {
+                        junction = true;
+                    }
+                }
+                
+                // TH1: Là giao lộ
+                if (junction) {
+                    // Kết nối mọi node với mọi node khác
+                    for (let j = 0; j < way.nd.length; j++) {
+                        let curr = way.nd[j]["$"]["ref"];
+                        for (let i = 0; i < way.nd.length; i++) {
+                            let next = way.nd[i]["$"]["ref"];
+                            if (curr != next) {
+                                // Kết nối 2 chiều
+                                nodes[next].con.add(curr);
+                                nodes[curr].con.add(next);
+                            }
+                        }
+                    }
+                }
+                // TH2: Là con đường
+                else if (highway) {
+                    // Kết nối các node liên tiếp
+                    for (let i = 1; i < way.nd.length; i++) {
+                        let prev = way.nd[i-1]["$"]["ref"];
+                        let curr = way.nd[i]["$"]["ref"];
+                        
+                        // Kết nối 2 chiều
+                        nodes[prev].con.add(curr);
+                        nodes[curr].con.add(prev);
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Ví dụ:
+```
+Way (highway=residential) với nodes: [1, 2, 3, 4]
+
+Sau createGraph:
+nodes[1].con = {2}
+nodes[2].con = {1, 3}
+nodes[3].con = {2, 4}
+nodes[4].con = {3}
+
+Cấu trúc: 1 ↔ 2 ↔ 3 ↔ 4
+```
+
+─────────────────────────────────────────────────────────────────────────────
+
+6.5 getNodes() - Lọc các node có kết nối
+──────────────────────────────────────────
+
+Mục tiêu: Trả về chỉ các node có ít nhất 1 kết nối (để loại bỏ node cô lập)
+
+Code:
+```javascript
+function getNodes() {
+    let out = {};
+    
+    for (let key in nodes) {
+        if (nodes[key] && nodes[key].con && nodes[key].con.size > 0) {
+            let node = nodes[key];
+            node.con = Array.from(node.con);  // Chuyển Set → Array
+            out[key] = node;
+        }
+    }
+    
+    return out;
+}
+```
+
+Lý do chuyển Set → Array:
+- Set không thể serialize thành JSON
+- Array có thể lưu vào localStorage và map.json
+
+================================================================================
+
+7. GIAO DIỆN WEB (docs/index.html & docs/index.js)
+================================================================================
+
+7.1 Bản đồ tương tác (Leaflet.js)
+──────────────────────────────────
+
+Khởi tạo bản đồ:
+```javascript
+const mymap = L.map('mapid').setView([21.00269, 105.85159], 16);
+```
+- 'mapid': ID của div chứa bản đồ
+- [21.00269, 105.85159]: Tọa độ Hà Nội
+- 16: Zoom level
+
+Ba đường polyline hiển thị kết quả:
+```javascript
+const lineA = L.polyline([], { color: 'red',   weight: 3 }).addTo(mymap);  // A*
+const lineB = L.polyline([], { color: 'blue',  weight: 3 }).addTo(mymap);  // BFS
+const lineG = L.polyline([], { color: 'green', weight: 3 }).addTo(mymap);  // Greedy
+```
+
+Hai marker cho điểm start và end:
+```javascript
+const a = L.marker([0, 0], { draggable: true }).addTo(mymap);  // Điểm A
+const b = L.marker([1, 1], { draggable: true }).addTo(mymap);  // Điểm B
+```
+
+─────────────────────────────────────────────────────────────────────────────
+
+7.2 Tương tác người dùng
+────────────────────────
+
+Cách 1: Click trên bản đồ để chọn điểm
+```javascript
+mymap.on('click', (e) => {
+    let nn = nearestNeighbour(e.latlng["lat"], e.latlng["lng"]);
+    
+    if (ab) {
+        a.setLatLng(nn);           // Click lần 1: Đặt điểm A
+        aid = nn.id;
+        ab = false;
+    } else {
+        b.setLatLng(nn);           // Click lần 2: Đặt điểm B
+        bid = nn.id;
+        ab = true;
+        
+        // Tính đường đi cho 3 thuật toán
+        if (aid > 0 && bid > 0) {
+            let pathA = constructPath(astar(aid, bid), 'Astar');
+            let pathB = constructPath(bfs(aid, bid), 'BFS');
+            let pathG = constructPath(greedy(aid, bid), 'Greedy');
+            renderPathIncrementally(pathA, pathB, pathG);
+        }
+    }
+});
+```
+
+Cách 2: Kéo thả marker
+```javascript
+a.on('dragend', (e) => {
+    aid = null;
+    let nn = nearestNeighbour(e.target.getLatLng().lat, e.target.getLatLng().lng);
+    aid = nn.id;
+    
+    // Tính lại đường đi ngay lập tức
+    let pathA = constructPath(astar(aid, bid), 'Astar');
+    let pathB = constructPath(bfs(aid, bid), 'BFS');
+    let pathG = constructPath(greedy(aid, bid), 'Greedy');
+    
+    lineA.setLatLngs(pathA);
+    lineB.setLatLngs(pathB);
+    lineG.setLatLngs(pathG);
+});
+
+// Tương tự cho marker B
+b.on('dragend', (e) => { ... });
+```
+
+─────────────────────────────────────────────────────────────────────────────
+
+7.3 Hiển thị đường đi với animation
+────────────────────────────────────
+
+Hàm renderPathPartially: Vẽ từng điểm một với delay 200ms
+
+```javascript
+function renderPathPartially() {
+    const offset = 0.00000;
+    
+    if (currentIndexA < currentPathA.length) {
+        lineA.addLatLng(currentPathA[currentIndexA]);
+        currentIndexA++;
+        setTimeout(renderPathPartially, 200);  // Delay 200ms
+    }
+    
+    if (currentIndexB < currentPathB.length) {
+        const latlngB = currentPathB[currentIndexB];
+        const latlngBOffset = L.latLng(
+            latlngB[0] + offset, 
+            latlngB[1] + offset
+        );
+        lineB.addLatLng(latlngBOffset);
+        currentIndexB++;
+        setTimeout(renderPathPartially, 200);
+    }
+    
+    if (currentIndexG < currentPathG.length) {
+        const latlngG = currentPathG[currentIndexG];
+        const latlngGOffset = L.latLng(
+            latlngG[0] - offset, 
+            latlngG[1] - offset
+        );
+        lineG.addLatLng(latlngGOffset);
+        currentIndexG++;
+        setTimeout(renderPathPartially, 200);
+    }
+}
+```
+
+Hiệu ứng offset: Dùng để tránh 3 đường trùng nhau 100%
+- A* (Red): Không offset
+- BFS (Blue): +offset trên cả lat và lon
+- Greedy (Green): -offset trên cả lat và lon
+
+─────────────────────────────────────────────────────────────────────────────
+
+7.4 Lưu trữ dữ liệu (localStorage)
+───────────────────────────────────
+
+Khi tải map.json:
+```javascript
+fetch("map.json")
+    .then(response => response.json())
+    .then(data => {
+        localStorage.setItem("data", JSON.stringify(data.nodes));
+        // ... vẽ nodes trên bản đồ ...
+    });
+```
+
+Lý do dùng localStorage:
+- Giảm số lần request từ JavaScript
+- Tăng tốc độ tính toán (không phải parse lại JSON mỗi lần)
+- Có thể shared giữa các functions
+
+================================================================================
+
+8. LUỒNG THỰC THI HOÀN CHỈNH
+================================================================================
+
+INPUT: User click 2 điểm trên bản đồ
+
+STEP 1: Backend (1 lần, chạy trước)
+├─ npm run graph
+├─ Chạy index.js
+├─ Đọc map.osm
+├─ Phân tích XML → Object
+├─ Gọi osm-parser.js:
+│  ├─ parseNodes() → {id: {lat, lon, con: Set}}
+│  ├─ parseAddresses() → [{addr, lat, lon}]
+│  ├─ createGraph() → Điền vào node.con
+│  └─ getNodes() → Lọc node, Set→Array
+└─ Xuất map.json
+
+STEP 2: Frontend (mỗi lần người dùng tương tác)
+├─ npm run serve → http://localhost:8080
+├─ Tải index.html
+├─ Tải map.json → Lưu vào localStorage
+├─ Vẽ bản đồ Leaflet + nodes + markers
+│
+├─ User click điểm A
+│  ├─ nearestNeighbour() → tìm node gần nhất
+│  ├─ Đặt marker A tại node đó
+│  └─ Lưu aid = node_id
+│
+├─ User click điểm B
+│  ├─ nearestNeighbour() → tìm node gần nhất
+│  ├─ Đặt marker B tại node đó
+│  ├─ Lưu bid = node_id
+│  │
+│  └─ Gọi 3 thuật toán:
+│     ├─ astar(aid, bid)
+│     │  ├─ Khởi tạo queue với node start
+│     │  ├─ While goal không tìm thấy:
+│     │  │  ├─ Lấy node có f(n)=g(n)+h(n) nhỏ nhất
+│     │  │  ├─ Nếu là goal → return (tìm được!)
+│     │  │  └─ Ngược lại → thêm children vào queue
+│     │  └─ Return node goal (kèm chain parent)
+│     │
+│     ├─ bfs(aid, bid)
+│     │  ├─ Khởi tạo queue với node start
+│     │  ├─ While goal không tìm thấy:
+│     │  │  ├─ Lấy node đầu tiên (FIFO)
+│     │  │  ├─ Nếu là goal → return
+│     │  │  └─ Ngược lại → thêm children vào queue (KHÔNG sắp xếp)
+│     │  └─ Return node goal
+│     │
+│     └─ greedy(aid, bid)
+│        ├─ Khởi tạo queue với node start
+│        ├─ While goal không tìm thấy:
+│        │  ├─ Lấy node có h(n) nhỏ nhất
+│        │  ├─ Nếu là goal → return
+│        │  └─ Ngược lại → thêm children vào queue
+│        └─ Return node goal
+│
+├─ constructPath(node, algo) cho cả 3 kết quả
+│  ├─ Truy vết từ goal → start theo chain parent
+│  ├─ Tạo mảng tọa độ [[lat1, lon1], [lat2, lon2], ...]
+│  └─ Tính tổng khoảng cách (console.log)
+│
+└─ renderPathIncrementally()
+   ├─ renderPathPartially() (recursive)
+   ├─ Vẽ từng điểm của A* (red) - delay 200ms
+   ├─ Vẽ từng điểm của BFS (blue) - delay 200ms
+   ├─ Vẽ từng điểm của Greedy (green) - delay 200ms
+   └─ Hiệu ứng animation 3 đường cùng lúc
+
+OUTPUT: 3 đường polyline trên bản đồ, console log khoảng cách
+
+================================================================================
+
+9. CÁC CÔNG THỨC TOÁN HỌC
+================================================================================
+
+9.1 Euclidean Distance
+──────────────────────
+d = √[(lat₁ - lat₂)² + (lon₁ - lon₂)²]
+
+Dùng cho: Tính khoảng cách thực tế giữa 2 điểm (trong hệ tọa độ Cartesian)
+
+9.2 Manhattan Distance (Chebyshev Distance)
+────────────────────────────────────────────
+d = |lat₁ - lat₂| + |lon₁ - lon₂|
+
+Dùng cho: Heuristic trong A* và Greedy (đi chỉ theo trục ngang/dọc)
+
+9.3 Haversine Distance (không dùng trong project này)
+──────────────────────────────────────────────────────
+d = 2R * arcsin(√[sin²((lat₂-lat₁)/2) + cos(lat₁) * cos(lat₂) * sin²((lon₂-lon₁)/2)])
+
+Dùng cho: Khoảng cách thực tế trên bề mặt Trái Đất (R ≈ 6371 km)
+Lý do không dùng: Quá phức tạp, trong khoảng cách ngắn (1km) xem như linear
+
+9.4 A* Cost Function
+─────────────────────
+f(n) = g(n) + h(n)
+
+g(n) = Chi phí từ node start đến node n
+h(n) = Ước lượng chi phí từ node n đến goal (heuristic)
+f(n) = Ước lượng chi phí toàn bộ từ start → n → goal
+
+Điều kiện admissible (đảm bảo tối ưu):
+h(n) ≤ actual_cost(n, goal)  ∀ node n
+
+9.5 BFS - Độ phức tạp
+──────────────────────
+Thời gian: O(V + E)
+Không gian: O(V)
+
+V = số node (vertices)
+E = số cạnh (edges) = số kết nối
+
+9.6 Greedy - Độ phức tạp
+─────────────────────────
+Thời gian: O(b^m) worst case, O(b^d) best case
+Không gian: O(b^m)
+
+b = branching factor (trung bình số con của mỗi node)
+d = độ sâu của goal
+m = độ sâu tối đa của cây tìm kiếm
+
+================================================================================
+
+10. CÁCH CHẠY DỰ ÁN
+================================================================================
+
+Chuẩn bị:
+1. Cài đặt Node.js (https://nodejs.org/)
+2. CD đến thư mục dự án
+3. Chạy: npm install
+
+Backend (1 lần):
+1. Chạy: npm run graph
+2. Chương trình sẽ:
+   - Đọc map.osm
+   - Xử lý dữ liệu
+   - Xuất map.json
+
+Frontend (Chạy web):
+1. Chạy: npm run serve
+2. Mở browser → http://localhost:8080
+3. Click hoặc kéo marker để chọn điểm đi/đến
+
+Kết quả:
+- Xem 3 đường polyline:
+  * Đỏ (Red) = A* - Đường tối ưu
+  * Xanh lam (Blue) = BFS - Đường tối ưu
+  * Xanh lá (Green) = Greedy - Đường nhanh nhất
+- Mở Developer Console (F12) xem log:
+  * Distance A*, BFS, Greedy
+  * Path (danh sách node)
+
+================================================================================
+
+11. NHỮNG ĐIỂM CẦN CẢI THIỆN
+================================================================================
+
+1. Heuristic Function:
+   - Hiện tại dùng Manhattan Distance (l1 norm)
+   - Có thể cải thiện bằng Chebyshev Distance hay Euclidean Distance
+   - Heuristic tốt hơn → A* sẽ nhanh hơn
+
+2. Tiêu chí tối ưu:
+   - Hiện tại chỉ tối ưu về số node trên đường
+   - Có thể thêm trọng số: độ dài thực, tốc độ tối đa đường, ...
+
+3. Xử lý lỗi:
+   - Nếu không tìm được đường đi → có thể trả về null (cần xử lý)
+   - Nếu node không liên thông → thuật toán sẽ chạy mãi
+
+4. Performance:
+   - Với bản đồ lớn (hàng triệu node), cần tối ưu tìm kiếm
+   - Có thể dùng A* với bidirectional search
+   - Hoặc dùng pre-processing: Dijkstra từ các node quan trọng
+
+5. Giao diện:
+   - Thêm thông tin so sánh: thời gian, số node, chi phí
+   - Thêm nút "Clear", "Swap Start/End"
+   - Hiển thị danh sách địa chỉ để người dùng chọn
+
+6. Format số:
+   - manhattan() có bug: return Math.abs(d1 + d2)
+   - Nên là: return d1 + d2 (không cần abs ngoài cùng)
+
+================================================================================
+
+12. THAM KHẢO & TÀI NGUYÊN
+================================================================================
+
+OpenStreetMap (OSM):
+- Website: https://www.openstreetmap.org/
+- Định dạng OSM XML: https://wiki.openstreetmap.org/wiki/OSM_XML
+- Download bản đồ: https://overpass-api.de/
+
+Leaflet.js:
+- Website: https://leafletjs.com/
+- Documentation: https://leafletjs.com/reference.html
+- Hỗ trợ bản đồ tương tác
+
+Thuật toán:
+- A* Search: https://en.wikipedia.org/wiki/A*_search_algorithm
+- BFS: https://en.wikipedia.org/wiki/Breadth-first_search
+- Greedy Search: https://en.wikipedia.org/wiki/Greedy_best-first_search
+
+Khoảng cách:
+- Manhattan Distance: https://en.wikipedia.org/wiki/Taxicab_geometry
+- Euclidean Distance: https://en.wikipedia.org/wiki/Euclidean_distance
+- Haversine Formula: https://en.wikipedia.org/wiki/Haversine_formula
+
+================================================================================
+
+13. KẾT LUẬN
+================================================================================
+
+Dự án "leaflet-path-finder" là ứng dụng web thực tế áp dụng các thuật toán 
+tìm kiếm đường đi trên đồ thị có trọng số.
+
+Điểm chính:
+✓ Sử dụng dữ liệu thực từ OpenStreetMap
+✓ So sánh 3 thuật toán khác nhau (A*, BFS, Greedy)
+✓ Hiệu ứng trực quan với Leaflet.js
+✓ Tính toán phía server (xử lý OSM) và client (thuật toán)
+
+Ứng dụng thực tế:
+- Hệ thống định vị (GPS navigation)
+- Lập lộ trình giao hàng
+- Tìm con đường tối ưu giữa hai địa điểm
+- So sánh hiệu suất các thuật toán trên dữ liệu thực
+
+================================================================================
+                            HẾT TÀI LIỆU
+================================================================================
